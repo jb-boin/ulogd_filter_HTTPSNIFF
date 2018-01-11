@@ -1,0 +1,20 @@
+--- src/ulogd.c	2018-01-11 17:55:15.262417127 +0100
++++ src/ulogd.c	2018-01-11 17:58:28.834419996 +0100
+@@ -189,6 +189,7 @@
+ 		ret = 8;
+ 		break;
+ 	case ULOGD_RET_IP6ADDR:
++	case ULOGD_RET_RAWSTR:
+ 		ret = 16;
+ 		break;
+ 	case ULOGD_RET_STRING:
+@@ -307,6 +308,9 @@
+ 		case ULOGD_RET_RAW:
+ 			return strdup("raw data");
+ 			break;
++		case ULOGD_RET_RAWSTR:
++			return strdup("raw string");
++			break;
+ 		default:
+ 			return strdup("Unknown type");
+ 	}

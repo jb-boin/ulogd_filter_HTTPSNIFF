@@ -1,0 +1,79 @@
+--- util/db.c	2018-01-11 17:55:55.386417721 +0100
++++ util/db.c	2018-01-11 18:04:30.266425353 +0100
+@@ -57,7 +57,8 @@
+ }
+ 
+ #define SQL_INSERTTEMPL   "SELECT P(Y)"
+-#define SQL_VALSIZE	100
++/* Maximum string length (non-escaped), will be replaced with NULL if longer */
++#define SQL_STRINGSIZE    255
+ 
+ /* create the static part of our insert statement */
+ static int sql_createstmt(struct ulogd_pluginstance *upi)
+@@ -78,13 +79,35 @@
+ 	for (i = 0; i < upi->input.num_keys; i++) {
+ 		if (upi->input.keys[i].flags & ULOGD_KEYF_INACTIVE)
+ 			continue;
++
++		struct ulogd_key *key = upi->input.keys[i].u.source;
++		short key_length = 4;
++
+ 		/* we need space for the key and a comma, as well as
+-		 * enough space for the values */
+-		size += strlen(upi->input.keys[i].name) + 1 + SQL_VALSIZE;
++		* enough space for the values (and quotes around strings) */
++		if(key->type == ULOGD_RET_STRING) {
++			/* SQL_STRINGSIZE is the max (VAR)CHAR length, *2 in case every of its characters would be escaped and +3 for the quotes around the string and the comma at the end */
++			ulogd_log(ULOGD_DEBUG, "allocating %d bytes for string %s of type %s", (SQL_STRINGSIZE * 2) + 3, key->name, type_to_string(key->type));
++			size += (SQL_STRINGSIZE * 2) + 3;
++		} else {
++			/* key_length is the maximum strlen for the specified integer type (ex: ULOGD_RET_INT32 lowest value is -2147483648 which is 11 characters long) */
++			key_length = ulogd_key_size(key);
++			if(key_length < 1) {
++				/* ulogd_key_size() returns -1 for key types it does not know */
++				key_length = SQL_STRINGSIZE;
++				ulogd_log(ULOGD_ERROR, "%s key length cannot be determined, forced to %hd bytes", upi->input.keys[i].name, key_length);
++			} else {
++				key_length = 10*key_length*8/33+2;
++			}
++			ulogd_log(ULOGD_DEBUG, "allocating %hd bytes for int %s of type %s", key_length, upi->input.keys[i].name, type_to_string(key->type));
++
++			/* +1 for the comma at the end */
++			size += key_length + 1;
++		}
+ 	}
+ 	size += strlen(procedure);
+ 
+-	ulogd_log(ULOGD_DEBUG, "allocating %u bytes for statement\n", size);
++	ulogd_log(ULOGD_DEBUG, "allocating a total of %u bytes for the statement\n", size);
+ 
+ 	mi->stmt = (char *) malloc(size);
+ 	if (!mi->stmt) {
+@@ -373,14 +396,20 @@
+ 			sprintf(stmt_ins, "'%d',", res->u.value.b);
+ 			break;
+ 		case ULOGD_RET_STRING:
+-			*(stmt_ins++) = '\'';
+ 			if (res->u.value.ptr) {
+-				stmt_ins +=
+-				di->driver->escape_string(upi, stmt_ins,
+-							  res->u.value.ptr,
+-							strlen(res->u.value.ptr));
++				if(strlen(res->u.value.ptr) > SQL_STRINGSIZE) {
++					ulogd_log(ULOGD_ERROR, "The string for the key %s is too long (>%d chars), value is set to NULL", upi->input.keys[i].name, SQL_STRINGSIZE);
++					stmt_ins += sprintf(stmt_ins, "NULL,");
++				} else {
++					/* the string is escaped and put between quotes */
++					*(stmt_ins++) = '\'';
++					stmt_ins += di->driver->escape_string(upi, stmt_ins, res->u.value.ptr, strlen(res->u.value.ptr));
++					stmt_ins += sprintf(stmt_ins, "\',");
++				}
++			} else {
++				ulogd_log(ULOGD_NOTICE, "No string passed for the key %s, setting the value to NULL", upi->input.keys[i].name);
++				stmt_ins += sprintf(stmt_ins, "NULL,");
+ 			}
+-			sprintf(stmt_ins, "',");
+ 			break;
+ 		case ULOGD_RET_RAWSTR:
+ 			sprintf(stmt_ins, "%s,", (char *) res->u.value.ptr);
+

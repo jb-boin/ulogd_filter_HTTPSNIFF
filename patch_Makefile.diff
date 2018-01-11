@@ -1,0 +1,18 @@
+--- ../ulogd2/filter/Makefile.am	2018-01-11 17:52:53.294415022 +0100
++++ ../ulogd2/filter/Makefile.am	2018-01-11 17:54:36.458416551 +0100
+@@ -7,7 +7,7 @@
+ 			 ulogd_filter_PRINTPKT.la ulogd_filter_PRINTFLOW.la \
+ 			 ulogd_filter_IP2STR.la ulogd_filter_IP2BIN.la \
+ 			 ulogd_filter_HWHDR.la ulogd_filter_MARK.la \
+-			 ulogd_filter_IP2HBIN.la
++			 ulogd_filter_IP2HBIN.la ulogd_filter_HTTPSNIFF.la
+ 
+ ulogd_filter_IFINDEX_la_SOURCES = ulogd_filter_IFINDEX.c
+ ulogd_filter_IFINDEX_la_LDFLAGS = -avoid-version -module
+@@ -36,3 +36,6 @@
+ 
+ ulogd_filter_PRINTFLOW_la_SOURCES = ulogd_filter_PRINTFLOW.c ../util/printflow.c
+ ulogd_filter_PRINTFLOW_la_LDFLAGS = -avoid-version -module
++
++ulogd_filter_HTTPSNIFF_la_SOURCES = ulogd_filter_HTTPSNIFF.c
++ulogd_filter_HTTPSNIFF_la_LDFLAGS = -avoid-version -module

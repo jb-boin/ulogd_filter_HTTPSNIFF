@@ -1,0 +1,44 @@
+HTTP requests filter module for ulogd2
+
+This module sniffs HTTP requests including the HOST, URI and the METHOD (POST, GET).
+
+If ONLY_LOG_HTTPSNIFF is defined (the default), packets not having "HOST: ..." and/or URI informations ("GET ..." or "POST ...") are discarded
+
+The code is based on the filter_PWSNIFF code and only has been tested on ulogd2 2.0.5 outputting to a MySQL database.
+
+
+A SQL dump for MySQL is provided, including the INSERT_HTTPSNIFF procedure that does the matching if the "HOST:" and the "GET/POST" are separated in two different packets ; the event "cleanUlogd" that does a daily cleanup of entries older then 2 months.
+
+There are also an host and an uid whitelist tables, if the HOST or the uid of a request is listed on the corresponding table, the request wont be logged on the table.
+
+===> COMPILATION
+
+To be able to build the module, you need to put ulogd_filter_HTTPSNIFF.c on the filter/ directory of the ulogd2 sourcecode then patch filter/Makefile.am:
+ $ patch -p0 -i /path/to/patch_Makefile.diff
+
+There are currently (11 Jan 2018) two bugs on the code of ulogd2 that are problematic with this module.
+For more informations about those : https://bugzilla.netfilter.org/show_bug.cgi?id=1192 and https://bugzilla.netfilter.org/show_bug.cgi?id=1193
+
+Patchs for those two bugs is provided for both 2.0.5 and the trunk tree (use at your own risk) :
+ $ patch -p0 -i /path/to/patch_fix_rawstr.VERSION.diff
+ $ patch -p0 -i /path/to/patch_fix_strings_malloc.VERSION.diff
+
+Then you must compile ulogd2 as usual.
+
+===> CONFIGURATION
+
+Add this line to load the plugin :
+
+ plugin="/usr/lib/x86_64-linux-gnu/ulogd/ulogd_filter_HTTPSNIFF.so"
+
+Example of use to log to a MySQL database :
+ stack=log1:NFLOG,base1:BASE,ifi1:IFINDEX,ip2bin1:IP2BIN,mac2str1:HWHDR,httpsniff1:HTTPSNIFF,mysql1:MYSQL
+
+Create the database using the example dump file :
+ mysql -h'sqlserver.host' -u'sqluser' -p'sqlpass' database < /path/to/ulogd_filter_HTTPSNIFF.sql
+
+Then set the "procedure" parameter of you SQL connection such as :
+ procedure="INSERT_HTTPSNIFF"
+
+Example of use with a iptables/NFLOG rule to log outgoing connections :
+ iptables -I OUTPUT -p tcp -m tcp --dport 80 -m limit --limit 5/s -j NFLOG --nflog-range 512
