@@ -34,8 +34,7 @@ Add this line to load the plugin :
 Example of use to log to a MySQL database :
  stack=log1:NFLOG,base1:BASE,ifi1:IFINDEX,ip2bin1:IP2BIN,mac2str1:HWHDR,httpsniff1:HTTPSNIFF,mysql1:MYSQL
 
-Create the database using the example dump file :
- mysql -h'sqlserver.host' -u'sqluser' -p'sqlpass' database < /path/to/ulogd_filter_HTTPSNIFF.sql
+Create the database by importing the example SQL database, please not that it includes "examples" on the whitelist tables that you might not want.
 
 Then set the "procedure" parameter of you SQL connection such as :
  procedure="INSERT_HTTPSNIFF"
