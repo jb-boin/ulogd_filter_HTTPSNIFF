@@ -1,5 +1,5 @@
---- ../ulogd2/filter/Makefile.am	2018-01-11 17:52:53.294415022 +0100
-+++ ../ulogd2/filter/Makefile.am	2018-01-11 17:54:36.458416551 +0100
+--- filter/Makefile.am	2018-01-11 17:52:53.294415022 +0100
++++ filter/Makefile.am	2018-01-11 17:54:36.458416551 +0100
 @@ -7,7 +7,7 @@
  			 ulogd_filter_PRINTPKT.la ulogd_filter_PRINTFLOW.la \
  			 ulogd_filter_IP2STR.la ulogd_filter_IP2BIN.la \
