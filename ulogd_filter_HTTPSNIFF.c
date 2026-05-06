@@ -2,7 +2,7 @@
  *
  * ulogd logging interpreter for HTTP queries.
  *
- * (C) 2017 by Jean Weisbuch <jean@phpnet.org>
+ * (C) 2017-2026 by Jean Weisbuch <jean@phpnet.org>
  *
  * Based on ulogd_PWSNIFF.c by Harald Welte <laforge@gnumonks.org>
  *
@@ -27,6 +27,7 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include <netinet/in.h>
+#define _GNU_SOURCE
 #include <netinet/tcp.h>
 #include <ulogd/ulogd.h>
 
@@ -43,7 +44,13 @@ enum http_methods {
 	POST_METHOD,
 };
 
-static u_int16_t httpsniff_ports[] = {
+enum httpsniff_output_keys {
+	HTTPSNIFF_OUT_KEY_HOSTNAME,
+	HTTPSNIFF_OUT_KEY_URI,
+	HTTPSNIFF_OUT_KEY_METHOD,
+};
+
+static uint16_t httpsniff_ports[] = {
 	80,
 	/* feel free to include any other ports here, provided that their
 	 * host/uri syntax is the same */
@@ -55,6 +62,10 @@ static unsigned char *_get_next_blank(unsigned char* begp, unsigned char *endp)
 
 	for (ptr = begp; ptr < endp; ptr++) {
 		if (*ptr == ' ' || *ptr == '\n' || *ptr == '\r' || *ptr == '\0') {
+			if (ptr == begp) {
+				/* There is a delimiter at the very start of the buffer (empty line) */
+				return NULL;
+			}
 			return ptr-1;
 		}
 	}
@@ -68,24 +79,27 @@ static int interp_httpsniff(struct ulogd_pluginstance *pi)
 	void *protoh;
 	struct tcphdr *tcph;
 	unsigned int tcplen;
-	unsigned char  *ptr, *begp, *uri_begp, *endp, *uri_endp;
+	unsigned char *ptr, *hostname_begp, *uri_begp, *hostname_endp, *uri_endp;
 	int hostname_len, uri_len, cont = 0;
 	unsigned int i;
 
+	char *hostname = NULL;
+	char *uri = NULL;
 	u_int8_t http_method = UNKNOWN_METHOD;
 
 	struct ulogd_key *inp = pi->input.keys;
 	if (!pp_is_valid(inp, KEY_RAW_PKT)) {
-		ulogd_log(ULOGD_ERROR, "httpsniff invalid input key for KEY_RAW_PKT : %d", inp[KEY_RAW_PKT]);
+		ulogd_log(ULOGD_ERROR, "httpsniff invalid input key for KEY_RAW_PKT");
 		return ULOGD_IRET_STOP;
 	}
 
-	protoh = (u_int32_t *)iph + iph->ihl;
+	protoh = (uint32_t *)iph + iph->ihl;
 	tcph = protoh;
 	tcplen = ntohs(iph->tot_len) - iph->ihl * 4;
 
 	hostname_len = uri_len = 0;
-	begp = uri_begp = NULL;
+	hostname_begp = uri_begp = NULL;
+	hostname_endp = uri_endp = NULL;
 
 	if (iph->protocol != IPPROTO_TCP) {
 		ulogd_log(ULOGD_DEBUG, "httpsniff packet is not TCP (%d)", iph->protocol);
@@ -100,23 +114,23 @@ static int interp_httpsniff(struct ulogd_pluginstance *pi)
 		}
 	}
 	if (!cont) {
-		ulogd_log(ULOGD_DEBUG, "httpsniff packet dstport (%d) is not listed in httpsniff_ports", tcph->dest);
+		ulogd_log(ULOGD_DEBUG, "httpsniff packet dstport (%d) is not listed in httpsniff_ports", ntohs(tcph->dest));
 		return ULOGD_IRET_STOP;
 	}
 
 	for (ptr = (unsigned char *) tcph + sizeof(struct tcphdr); ptr < (unsigned char *) tcph + tcplen; ptr++) {
-		if (!strncasecmp((char *)ptr, "HOST: ", 6)) {
-			begp = ptr+6;
-			endp = _get_next_blank(begp, (unsigned char *)tcph + tcplen);
-			if (endp)
-				hostname_len = endp - begp + 1;
-		} else if (!strncasecmp((char *)ptr, "GET ", 4)) {
+		if (!hostname_len && !strncasecmp((char *)ptr, "HOST: ", 6)) {
+			hostname_begp = ptr+6;
+			hostname_endp = _get_next_blank(hostname_begp, (unsigned char *)tcph + tcplen);
+			if (hostname_endp)
+				hostname_len = hostname_endp - hostname_begp + 1;
+		} else if (!uri_len && !strncasecmp((char *)ptr, "GET ", 4)) {
 			uri_begp = ptr+4;
 			uri_endp = _get_next_blank(uri_begp, (unsigned char *)tcph + tcplen);
 			if (uri_endp)
 				uri_len = uri_endp - uri_begp + 1;
 			http_method = GET_METHOD;
-		} else if (!strncasecmp((char *)ptr, "POST ", 5)) {
+		} else if (!uri_len && !strncasecmp((char *)ptr, "POST ", 5)) {
 			uri_begp = ptr+5;
 			uri_endp = _get_next_blank(uri_begp, (unsigned char *)tcph + tcplen);
 			if (uri_endp)
@@ -143,35 +157,34 @@ static int interp_httpsniff(struct ulogd_pluginstance *pi)
 
 	if (hostname_len) {
 		/* The hostname has been retrieved */
-		char *ptr;
-		ptr = (char *) malloc(hostname_len+1);
-		if (!ptr) {
-			ulogd_log(ULOGD_ERROR, "httpsniff !ptr hostname_len");
+		hostname = strndup((char *)hostname_begp, hostname_len);
+		if (!hostname) {
+			ulogd_log(ULOGD_ERROR, "httpsniff !hostname hostname_len");
 			return ULOGD_IRET_ERR;
 		}
-		strncpy(ptr, (char *)begp, hostname_len);
-		ptr[hostname_len] = '\0';
-		okey_set_ptr(&ret[0], ptr);
+		okey_set_ptr(&ret[HTTPSNIFF_OUT_KEY_HOSTNAME], hostname);
 	}
 
 	if (uri_len) {
 		/* The URI has been retrieved */
-		char *ptr;
-		ptr = (char *) malloc(uri_len+1);
-		if (!ptr) {
-			ulogd_log(ULOGD_ERROR, "httpsniff !ptr uri_len");
+		uri = strndup((char *)uri_begp, uri_len);
+		if (!uri) {
+			ulogd_log(ULOGD_ERROR, "httpsniff !uri uri_len");
+			if(hostname) {
+				/* Free previously allocated hostname to avoid a memory leak */
+				free(hostname);
+				okey_set_ptr(&ret[HTTPSNIFF_OUT_KEY_HOSTNAME], NULL);
+			}
 			return ULOGD_IRET_ERR;
 		}
-		strncpy(ptr, (char *)uri_begp, uri_len);
-		ptr[uri_len] = '\0';
-		okey_set_ptr(&ret[1], ptr);
+		okey_set_ptr(&ret[HTTPSNIFF_OUT_KEY_URI], uri);
 	}
 
 	if (http_method) {
 		/* The method has been retrieved */
-		okey_set_u8(&ret[2], http_method);
+		okey_set_u8(&ret[HTTPSNIFF_OUT_KEY_METHOD], http_method);
 	}
-	ulogd_log(ULOGD_DEBUG, "----> httpsniff detected, tcplen=%d, iphtotlen=%d, ihl=%d, host=%s, uri=%s, method=%d\n", tcplen, ntohs(iph->tot_len), iph->ihl, ret[0].u.value.ptr, ret[1].u.value.ptr, http_method);
+	ulogd_log(ULOGD_DEBUG, "----> httpsniff detected, tcplen=%d, iphtotlen=%d, ihl=%d, host=%s, uri=%s, method=%d\n", tcplen, ntohs(iph->tot_len), iph->ihl, hostname ? hostname : "(null)", uri ? uri : "(null)", http_method);
 	return ULOGD_IRET_OK;
 }
 
